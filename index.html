@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, Arial; margin: 16px; }
+    #scanInput { font-size: 22px; padding: 12px; width: 100%; }
+    #status { margin-top: 10px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h2>GB Counter (Scanner)</h2>
+  <input id="scanInput" autocomplete="off" placeholder="Scan here (focus stays here)" />
+  <div id="status">Ready</div>
+  <h3>Last scans</h3>
+  <ul id="lastScans"></ul>
+
+  <script src="app.js"></script>
+</body>
+</html>
