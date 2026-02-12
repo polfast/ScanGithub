@@ -4,16 +4,96 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: system-ui, Arial; margin: 16px; }
-    #scanInput { font-size: 22px; padding: 12px; width: 100%; }
+    #scanInput { font-size: 22px; padding: 12px; width: 100%; box-sizing: border-box; }
     #status { margin-top: 10px; font-weight: 600; }
+
+    .hidden { display: none; }
+
+    .row { display:flex; gap:10px; align-items:center; }
+    .btn { padding: 12px; font-size: 18px; border: 1px solid #ccc; border-radius: 12px; background:#fff; }
+    .btn:active { transform: scale(0.99); }
+    .btnWide { width: 100%; }
+
+    .dayGrid { display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; margin-top: 10px; }
+    .card { border:1px solid #ddd; border-radius: 14px; padding: 12px; background:#fff; }
+    .muted { color:#666; font-size: 14px; }
+
+    .dashBig { font-size: 22px; font-weight: 800; line-height: 1.1; }
+    .dashMid { font-size: 16px; font-weight: 700; margin-top: 6px; }
+    .dashSmall { font-size: 14px; color:#666; margin-top: 2px; }
+
+    .routesGrid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-top: 10px; }
+    .routeTile { cursor:pointer; user-select:none; }
+    .routeId { font-size: 18px; font-weight: 800; }
+    .routeCount { font-size: 14px; margin-top: 4px; font-weight: 700; }
+    .routeDiff { font-size: 12px; margin-top: 2px; font-weight: 800; }
+
+    /* status colors */
+    .in_progress { background: #fff7cc; border-color: #e7d68a; }  /* yellow-ish */
+    .on_target { background: #e8ffe8; border-color: #9ad39a; }   /* green-ish */
+    .over_target { background: #e6f1ff; border-color: #8bb7ff; } /* blue-ish */
+
+    .selected { outline: 3px solid #111; }
+    .topbar { display:flex; justify-content: space-between; align-items:center; gap: 10px; }
+    .pill { padding: 6px 10px; border-radius: 999px; border:1px solid #ddd; font-weight:700; }
   </style>
 </head>
 <body>
+
   <h2>GB Counter (Scanner)</h2>
-  <input id="scanInput" autocomplete="off" placeholder="Scan here (focus stays here)" />
-  <div id="status">Ready</div>
-  <h3>Last scans</h3>
-  <ul id="lastScans"></ul>
+
+  <!-- Day Picker -->
+  <div id="dayPicker" class="card">
+    <div class="dashMid">Select day</div>
+    <div class="muted">Choose which sheet you work on today (Sat–Wed).</div>
+    <div class="dayGrid">
+      <button class="btn" data-day="Sat">Sat</button>
+      <button class="btn" data-day="Sun">Sun</button>
+      <button class="btn" data-day="Mon">Mon</button>
+      <button class="btn" data-day="Tue">Tue</button>
+      <button class="btn" data-day="Wed">Wed</button>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="hidden">
+
+    <div class="topbar" style="margin-top:12px;">
+      <div class="pill">DAY: <span id="dayLabel">-</span></div>
+      <button id="btnChangeDay" class="btn">Change day</button>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="card" style="margin-top:12px;">
+      <div class="dashBig"><span id="pctCompleted">0</span>% Routes Completed</div>
+      <div class="dashMid"><span id="completedRoutes">0</span> / <span id="activeRoutes">0</span> routes</div>
+      <div class="dashSmall"><span id="totalActual">0</span> / <span id="totalPlanned">0</span> boxes scanned</div>
+      <div class="muted" id="dashMsg" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- Route selector -->
+    <div class="card" style="margin-top:12px;">
+      <div class="row">
+        <button id="btnPrevRoute" class="btn">◀ Prev</button>
+        <button id="btnCurrentRoute" class="btn btnWide">
+          Route: <span id="currentRouteLabel">-</span>
+        </button>
+        <button id="btnNextRoute" class="btn">Next ▶</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">Tap a tile below to select route. Only active routes are shown.</div>
+
+      <div id="routesGrid" class="routesGrid"></div>
+    </div>
+
+    <!-- Scanner -->
+    <div class="card" style="margin-top:12px;">
+      <input id="scanInput" autocomplete="off" placeholder="Scan here (focus stays here)" />
+      <div id="status">Ready</div>
+    </div>
+
+    <h3>Last scans</h3>
+    <ul id="lastScans"></ul>
+  </div>
 
   <script src="app.js"></script>
 </body>
