@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbyi1VhhGC8PnokdZEN1jJz_nK9CvR7XWhi4iT6XxsIbjOPBDvGe_mWbTprGy-9tjQJR/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbx1b70IzjwxjGGPDvftJFLt-bsXs6clvMwC9cGD5MRKZTcABASI0JOoUQlZVVnR2WCm/exec";
 const API_KEY = "0123456789"; // taki sam w GAS
 
 let queue = [];
