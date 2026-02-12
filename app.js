@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbzaKf_MFpCETDM7xO3_IaFuKlBljvBUgG2r2YRvnpBwrqc24HWG47FE-0NjLsL0Sj2R/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbz_atNCIoHL2rne7kHlJKkLdI6oMuYCO_-huwxaja-GlP-9xHUKWEsPFQcUFVE0sgY-/exec";
 const API_KEY = "0123456789";
 
 // ====== SCAN QUEUE ======
