@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbyi1VhhGC8PnokdZEN1jJz_nK9CvR7XWhi4iT6XxsIbjOPBDvGe_mWbTprGy-9tjQJR/exec"; // wkleisz swój
+const API_URL = "https://script.google.com/macros/s/AKfycbyi1VhhGC8PnokdZEN1jJz_nK9CvR7XWhi4iT6XxsIbjOPBDvGe_mWbTprGy-9tjQJR/exec";
 const API_KEY = "0123456789"; // taki sam w GAS
 
 let queue = [];
@@ -63,6 +63,18 @@ input.addEventListener("keydown", (e) => {
   enqueue(code);
 });
 
+// Helper: fetch z timeoutem (iOS/Safari bywa kapryśne)
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // === Wysyłka co 5 sekund ===
 async function flushQueue() {
   if (queue.length === 0) return;
@@ -70,28 +82,43 @@ async function flushQueue() {
   // bierzemy paczkę max np. 100 rekordów na raz
   const batch = queue.slice(0, 100);
 
-  try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": API_KEY
-      },
-      body: JSON.stringify({
-        device: navigator.userAgent,
-        batch
-      })
-    });
+  // KLUCZ w query string (zamiast headera X-API-KEY)
+  const url = `${API_URL}?key=${encodeURIComponent(API_KEY)}`;
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device: navigator.userAgent,
+          batch
+        })
+      },
+      12000
+    );
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}${text ? " - " + text : ""}`);
+    }
+
+    const data = await res.json().catch(() => ({ status: "ok" }));
 
     // usuń wysłane z kolejki
     queue = queue.slice(batch.length);
-    setStatus(`Synced ${batch.length}. Remaining: ${queue.length}. Server: ${data.status}`);
+
+    setStatus(`Synced ${batch.length}. Remaining: ${queue.length}. Server: ${data.status || "ok"}`);
   } catch (err) {
-    setStatus(`Sync failed (will retry): ${err.message}. Queued: ${queue.length}`);
+    const msg =
+      err.name === "AbortError"
+        ? "timeout"
+        : (err && err.message) ? err.message : "unknown error";
+
+    setStatus(`Sync failed (will retry): ${msg}. Queued: ${queue.length}`);
     // nic nie usuwamy — spróbuje za kolejne 5s
   }
 }
+
 setInterval(flushQueue, 5000);
