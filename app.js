@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbx1b70IzjwxjGGPDvftJFLt-bsXs6clvMwC9cGD5MRKZTcABASI0JOoUQlZVVnR2WCm/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbx_ZRIbI1OCQkHct20zhAEOHvmCTIWJkp29sYgQIayPiDUwW34QqkX_YGk--78LkouD/exec";
 const API_KEY = "0123456789"; // taki sam w GAS
 
 let queue = [];
@@ -63,41 +63,36 @@ input.addEventListener("keydown", (e) => {
   enqueue(code);
 });
 
-// Helper: fetch z timeoutem (iOS/Safari bywa kapryśne)
-async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+// Helper: fetch z timeoutem
+async function fetchWithTimeout(url, timeoutMs = 12000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    return res;
+    return await fetch(url, { method: "GET", signal: controller.signal, cache: "no-store" });
   } finally {
     clearTimeout(id);
   }
 }
 
-// === Wysyłka co 5 sekund ===
+// === Wysyłka co 5 sekund (GET, bez CORS-preflight) ===
 async function flushQueue() {
   if (queue.length === 0) return;
 
-  // bierzemy paczkę max np. 100 rekordów na raz
-  const batch = queue.slice(0, 100);
+  // mniejsza paczka, bo URL ma limit długości
+  const batch = queue.slice(0, 25);
 
-  // KLUCZ w query string (zamiast headera X-API-KEY)
-  const url = `${API_URL}?key=${encodeURIComponent(API_KEY)}`;
+  // payload do URL (GET)
+  const payloadObj = {
+    key: API_KEY,
+    device: navigator.userAgent,
+    batch
+  };
+
+  const payload = encodeURIComponent(JSON.stringify(payloadObj));
+  const url = `${API_URL}?payload=${payload}`;
 
   try {
-    const res = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          device: navigator.userAgent,
-          batch
-        })
-      },
-      12000
-    );
+    const res = await fetchWithTimeout(url, 12000);
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -117,7 +112,6 @@ async function flushQueue() {
         : (err && err.message) ? err.message : "unknown error";
 
     setStatus(`Sync failed (will retry): ${msg}. Queued: ${queue.length}`);
-    // nic nie usuwamy — spróbuje za kolejne 5s
   }
 }
 
