@@ -1,15 +1,17 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbz_atNCIoHL2rne7kHlJKkLdI6oMuYCO_-huwxaja-GlP-9xHUKWEsPFQcUFVE0sgY-/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbz0i13iUMQk5FF1WIQUL9Ha_GUBy3ox3FsLxOiA5ol31_r_8BiYTeNrYlGoF_YxX2N8/exec";
 const API_KEY = "0123456789";
 
-// ====== SCAN QUEUE ======
-let queue = [];
+// ====== SCAN QUEUE (PERSISTENT) ======
+const QUEUE_KEY = "gb_queue_v2";
+let queue = loadQueue(); // [{id, ts, code, day, route}]
 let lastCode = "";
 let lastAt = 0;
+let isSending = false;
 
 // ====== APP STATE ======
 let selectedDay = localStorage.getItem("gb_day") || "";
-let activeRoutes = [];     // array of route numbers (sorted)
-let currentRoute = null;   // number
+let activeRoutes = [];      // array of route numbers (sorted)
+let currentRoute = null;    // number
 let lastRoutesPayload = []; // keep latest tiles data for rendering selection
 
 // ====== DOM ======
@@ -49,8 +51,28 @@ function addToUI(item) {
   while (listEl.children.length > 20) listEl.removeChild(listEl.lastChild);
 }
 
-function normalize(code) { return String(code || "").trim(); }
+function loadQueue() {
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+function saveQueue() {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+}
 
+// GB format: GB + 9 cyfr + opcjonalnie (litera + cyfra)
+function normalizeGB(code) {
+  const s = String(code || "").trim().toUpperCase();
+  if (!s) return "";
+  if (!/^GB\d{9}([A-Z]\d)?$/.test(s)) return "";
+  return s;
+}
+
+// anti-double-scan (np. odbicie skanera)
 function dedupeImmediate(code) {
   const t = Date.now();
   if (code === lastCode && (t - lastAt) < 700) return true;
@@ -119,11 +141,9 @@ function applyDashboard(dash, cleanedInfo) {
   const routes = Array.isArray(dash.routes) ? dash.routes : [];
   lastRoutesPayload = routes;
 
-  // build active routes list (already only active from backend)
   activeRoutes = routes.map(r => Number(r.route)).filter(n => Number.isFinite(n));
   activeRoutes.sort((a, b) => a - b);
 
-  // choose current route
   if (!currentRoute || !activeRoutes.includes(currentRoute)) {
     currentRoute = activeRoutes.length ? activeRoutes[0] : null;
   }
@@ -157,7 +177,6 @@ function renderRouteTiles(routes) {
       currentRoute = routeNum;
       currentRouteLabel.textContent = String(currentRoute);
 
-      // highlight selection
       routesGrid.querySelectorAll(".routeTile").forEach(x => x.classList.remove("selected"));
       tile.classList.add("selected");
 
@@ -190,8 +209,11 @@ async function initForDay(day) {
   applyDashboard(data.dashboard, data.cleaned);
   showApp();
 
-  setStatus("Ready");
+  setStatus(`Ready. Queue: ${queue.length} (offline supported)`);
   setTimeout(() => input.focus(), 50);
+
+  // spróbuj od razu wysłać co już jest w kolejce
+  kickSend();
 }
 
 function wireDayButtons() {
@@ -260,20 +282,35 @@ function enqueue(code) {
   }
 
   const ts = nowIso();
-  queue.push({ code, ts, day: selectedDay, route: currentRoute });
+  const item = {
+    id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2),
+    code,
+    ts,
+    day: selectedDay,
+    route: currentRoute
+  };
 
-  addToUI({ code, ts, route: currentRoute });
+  queue.push(item);
+  saveQueue();
+
+  addToUI(item);
   setStatus(`OK: ${code} (route ${currentRoute})  queued: ${queue.length}`);
+
+  kickSend();
 }
 
 input.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();
 
-  const code = normalize(input.value);
+  const raw = input.value;
   input.value = "";
 
-  if (!code) return;
+  const code = normalizeGB(raw);
+  if (!code) {
+    setStatus(`Invalid format: ${String(raw || "").trim()}`);
+    return;
+  }
 
   if (dedupeImmediate(code)) {
     setStatus(`Duplicate ignored: ${code}`);
@@ -283,51 +320,82 @@ input.addEventListener("keydown", (e) => {
   enqueue(code);
 });
 
-// ====== FLUSH (saveBatch) every 5s ======
-async function flushQueue() {
+// ====== SYNC WORKER (ACK, single flight) ======
+function kickSend() {
+  if (!selectedDay) return;
+  if (!navigator.onLine) return;
+  if (isSending) return;
   if (queue.length === 0) return;
-  if (!selectedDay || currentRoute == null) return;
+  sendLoop(); // async
+}
 
-  // Send only current day+route (stable & simple)
-  const batch = [];
-  const remaining = [];
-
-  for (const item of queue) {
-    if (item.day === selectedDay && item.route === currentRoute && batch.length < 25) {
-      batch.push({ ts: item.ts, code: item.code });
-    } else {
-      remaining.push(item);
-    }
-  }
-  if (!batch.length) return;
-
+async function sendLoop() {
+  isSending = true;
   try {
-    const data = await callApi({
-      key: API_KEY,
-      action: "saveBatch",
-      day: selectedDay,
-      route: currentRoute,
-      device: navigator.userAgent,
-      batch
-    });
+    while (navigator.onLine && queue.length > 0 && selectedDay) {
+      // Wysyłamy tylko dla wybranego dnia (żeby nie mieszać dni)
+      const dayItems = queue.filter(x => x.day === selectedDay);
+      if (dayItems.length === 0) break;
 
-    if (data.status !== "ok") throw new Error(data.message || "saveBatch failed");
+      const batch = dayItems.slice(0, 25);
+      const data = await callApi({
+        key: API_KEY,
+        action: "batchScan",
+        day: selectedDay,
+        device: navigator.userAgent,
+        items: batch.map(x => ({
+          id: x.id,
+          ts: x.ts,
+          code: x.code,
+          route: x.route
+        }))
+      }, 15000);
 
-    queue = remaining;
-    setStatus(`Synced ${data.saved} to route ${currentRoute}. Queue: ${queue.length}`);
+      if (data.status !== "ok") throw new Error(data.message || "batchScan failed");
 
-    // quick dashboard refresh after successful save
-    refreshDashboard();
+      const acked = new Set(Array.isArray(data.ackedIds) ? data.ackedIds : []);
+      if (acked.size === 0) {
+        // nic nie potwierdził -> nie usuwamy nic, próbujemy później
+        throw new Error("No ACK from backend");
+      }
+
+      // usuń z kolejki tylko to co ACK
+      const before = queue.length;
+      queue = queue.filter(x => !acked.has(x.id));
+      saveQueue();
+
+      const removed = before - queue.length;
+      const savedCount = Number(data.savedCount || 0);
+      const dupCount = Number(data.dupCount || 0);
+      const invalidCount = Number(data.invalidCount || 0);
+      const noRouteCount = Number(data.noRouteCount || 0);
+
+      setStatus(`Synced: removed ${removed} | saved ${savedCount} | dup ${dupCount} | invalid ${invalidCount} | queue ${queue.length}`);
+
+      // odśwież dashboard po udanej paczce
+      refreshDashboard();
+    }
   } catch (err) {
     const msg =
       err.name === "AbortError"
         ? "timeout"
         : (err && err.message) ? err.message : "unknown error";
 
-    setStatus(`Sync failed (will retry): ${msg}. Queued: ${queue.length}`);
+    setStatus(`Sync failed (retry): ${msg}. Queue: ${queue.length}`);
+  } finally {
+    isSending = false;
   }
 }
-setInterval(flushQueue, 5000);
+
+// co 5s próbuj wysłać, ale worker sam pilnuje, żeby nie robić równoległych requestów
+setInterval(kickSend, 5000);
+window.addEventListener("online", () => {
+  setStatus(`Online. Queue: ${queue.length}`);
+  kickSend();
+});
+window.addEventListener("offline", () => {
+  setStatus(`Offline mode. Queue: ${queue.length}`);
+});
 
 // ====== DASHBOARD refresh every 30s ======
 async function refreshDashboard() {
@@ -339,7 +407,6 @@ async function refreshDashboard() {
     const old = currentRoute;
     applyDashboard(data.dashboard, null);
 
-    // keep route if still active
     if (old && activeRoutes.includes(old)) {
       currentRoute = old;
       currentRouteLabel.textContent = String(currentRoute);
