@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paddock GB Counts</title>
+  <style>
+    :root{
+      --bg:#0b0f19;
+      --card:#121a2a;
+      --card2:#0f1524;
+      --border:rgba(255,255,255,.10);
+      --text:#e8eefc;
+      --muted:rgba(232,238,252,.70);
+      --accent:#4ea3ff;
+      --shadow: 0 14px 40px rgba(0,0,0,.35);
+      --radius: 18px;
+    }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: radial-gradient(1200px 600px at 20% -10%, rgba(78,163,255,.25), transparent 60%),
+                  radial-gradient(900px 500px at 90% 0%, rgba(180,90,255,.18), transparent 55%),
+                  var(--bg);
+      color:var(--text);
+    }
+    .wrap{ max-width:1100px; margin:0 auto; padding:18px; }
+    header{
+      display:flex; flex-wrap:wrap; gap:12px;
+      align-items:center; justify-content:space-between;
+      margin-bottom:12px;
+    }
+    .title{
+      font-size:28px; font-weight:900; letter-spacing:.2px;
+    }
+    .sub{ color:var(--muted); font-size:13px; margin-top:2px; }
+    .pill{
+      padding:10px 12px;
+      background:rgba(255,255,255,.06);
+      border:1px solid var(--border);
+      border-radius:999px;
+      color:var(--muted);
+      font-weight:700;
+      font-size:13px;
+      display:flex; gap:10px; align-items:center;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(5, minmax(0,1fr));
+      gap:10px;
+      margin:14px 0 14px;
+    }
+    @media (max-width: 720px){
+      .grid{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+    }
+    @media (max-width: 420px){
+      .grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    .dayBtn{
+      cursor:pointer;
+      user-select:none;
+      padding:14px 12px;
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border:1px solid var(--border);
+      box-shadow: var(--shadow);
+      text-align:center;
+      font-weight:900;
+      letter-spacing: .6px;
+      transition: transform .08s ease, border-color .12s ease, background .12s ease;
+    }
+    .dayBtn:hover{ transform: translateY(-1px); border-color: rgba(78,163,255,.45); }
+    .dayBtn.active{
+      border-color: rgba(78,163,255,.80);
+      background: linear-gradient(180deg, rgba(78,163,255,.22), rgba(255,255,255,.04));
+    }
+
+    .panel{
+      border-radius: var(--radius);
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .panelTop{
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:12px 12px;
+      border-bottom:1px solid var(--border);
+      background: rgba(0,0,0,.16);
+    }
+    .panelTop .left{
+      display:flex; flex-direction:column; gap:2px;
+    }
+    .panelTop .left .h{
+      font-weight:900;
+      font-size:14px;
+    }
+    .panelTop .left .m{
+      color:var(--muted); font-size:12px;
+    }
+    .panelTop .right{
+      display:flex; gap:10px; align-items:center;
+      color:var(--muted); font-size:12px;
+    }
+    .btn{
+      cursor:pointer;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      padding:10px 12px;
+      border-radius: 12px;
+      font-weight:800;
+    }
+    .btn:hover{ border-color: rgba(78,163,255,.45); }
+
+    iframe{
+      width:100%;
+      height: 78vh;
+      min-height: 520px;
+      border:0;
+      background:#fff; /* fallback w trakcie ładowania */
+    }
+
+    .note{
+      margin-top:10px;
+      color:var(--muted);
+      font-size:12px;
+    }
+    code{ color: rgba(232,238,252,.85); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">Paddock GB Counts</div>
+        <div class="sub">Select a day to view live counts</div>
+      </div>
+      <div class="pill">
+        <span>Dashboard</span>
+        <span id="pillDay">—</span>
+      </div>
+    </header>
+
+    <div class="grid" id="dayGrid">
+      <div class="dayBtn" data-day="Sat">SAT</div>
+      <div class="dayBtn" data-day="Sun">SUN</div>
+      <div class="dayBtn" data-day="Mon">MON</div>
+      <div class="dayBtn" data-day="Tue">TUE</div>
+      <div class="dayBtn" data-day="Wed">WED</div>
+    </div>
+
+    <div class="panel">
+      <div class="panelTop">
+        <div class="left">
+          <div class="h" id="panelTitle">Choose a day</div>
+          <div class="m" id="panelSub">The Google Apps Script dashboard will load below.</div>
+        </div>
+        <div class="right">
+          <button class="btn" id="btnReload">Reload</button>
+          <span id="loadState">Idle</span>
+        </div>
+      </div>
+
+      <iframe id="dashFrame" title="GB Dashboard"></iframe>
+    </div>
+
+    <div class="note">
+      Tip: you can bookmark this page and just change the day tile. (Source: Apps Script dashboard embedded via iframe.)
+    </div>
+  </div>
+
+<script>
+  // === CONFIG ===
+  // Wklej swój URL do /exec (bez parametrów)
+  const GAS_BASE_URL = "https://script.google.com/macros/s/AKfycbyMha-a_LBuZDPBSr5OU3kGm1HZYARiJWngJnS1l7GocwEvClIRdK0Ql5YAgBposVjm/exec";
+  const API_KEY = "0123456789"; // jeśli nadal używasz key w URL
+
+  const DAYS = ["Sat","Sun","Mon","Tue","Wed"];
+  const LS_KEY = "gb_dash_day";
+
+  const frame = document.getElementById("dashFrame");
+  const pillDay = document.getElementById("pillDay");
+  const panelTitle = document.getElementById("panelTitle");
+  const panelSub = document.getElementById("panelSub");
+  const loadState = document.getElementById("loadState");
+  const btnReload = document.getElementById("btnReload");
+  const dayGrid = document.getElementById("dayGrid");
+
+  function buildUrl(day){
+    const params = new URLSearchParams({
+      view: "1",
+      day,
+      key: API_KEY
+    });
+    return `${GAS_BASE_URL}?${params.toString()}`;
+  }
+
+  function setActiveDay(day){
+    localStorage.setItem(LS_KEY, day);
+    pillDay.textContent = day.toUpperCase();
+    panelTitle.textContent = `Day: ${day}`;
+    panelSub.textContent = "Loading live dashboard…";
+
+    dayGrid.querySelectorAll(".dayBtn").forEach(b=>{
+      b.classList.toggle("active", b.dataset.day === day);
+    });
+
+    loadState.textContent = "Loading…";
+    frame.src = buildUrl(day);
+  }
+
+  // iframe load state (best effort)
+  frame.addEventListener("load", ()=>{
+    loadState.textContent = "Loaded";
+    panelSub.textContent = "Live view (auto refresh handled inside Apps Script dashboard).";
+  });
+
+  btnReload.addEventListener("click", ()=>{
+    const day = localStorage.getItem(LS_KEY) || "Sat";
+    loadState.textContent = "Reloading…";
+    frame.src = buildUrl(day) + `&t=${Date.now()}`; // cache-bust
+  });
+
+  dayGrid.addEventListener("click", (e)=>{
+    const btn = e.target.closest(".dayBtn");
+    if (!btn) return;
+    const day = btn.dataset.day;
+    if (!DAYS.includes(day)) return;
+    setActiveDay(day);
+  });
+
+  // boot
+  const initial = localStorage.getItem(LS_KEY) || "Sat";
+  setActiveDay(initial);
+</script>
+</body>
+</html>
