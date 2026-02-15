@@ -14,6 +14,12 @@ let activeRoutes = [];      // array of route numbers (sorted)
 let currentRoute = null;    // number
 let lastRoutesPayload = []; // keep latest tiles data for rendering selection
 
+// ====== Warehouse UI counters (per route session) ======
+// NEW: invalid scan counter resets on route/day change
+let invalidScans = 0;
+// NEW: session actual counter (instant feedback for operator)
+let sessionActual = 0;
+
 // ====== DOM ======
 const el = (id) => document.getElementById(id);
 
@@ -39,6 +45,13 @@ const currentRouteLabel = el("currentRouteLabel");
 const input = el("scanInput");
 const statusEl = el("status");
 const listEl = el("lastScans");
+
+// NEW: warehouse header elements (from updated index.html)
+const routeHeaderDay = el("routeHeaderDay");
+const routeHeaderRoute = el("routeHeaderRoute");
+const routePlannedEl = el("routePlanned");
+const routeActualEl = el("routeActual");
+const invalidCountEl = el("invalidCount");
 
 // ====== UTILS ======
 function nowIso() { return new Date().toISOString(); }
@@ -111,6 +124,43 @@ async function callApi(payloadObj, timeoutMs = 12000) {
   return await res.json().catch(() => ({ status: "ok" }));
 }
 
+// ====== Warehouse UI helpers ======
+// NEW: get planned/actual for a route from last dashboard payload
+function getRouteInfo(routeNum) {
+  const r = (lastRoutesPayload || []).find(x => Number(x.route) === Number(routeNum));
+  if (!r) return { planned: "-", actual: "-" };
+  return { planned: Number(r.planned ?? "-"), actual: Number(r.actual ?? "-") };
+}
+
+// NEW: reset per-route counters and update header
+function resetRouteSessionCounters() {
+  invalidScans = 0;
+  sessionActual = 0;
+  updateWarehouseHeader();
+}
+
+// NEW: update header UI (day/route/planned/actual/invalid)
+function updateWarehouseHeader() {
+  if (routeHeaderDay) routeHeaderDay.textContent = selectedDay || "-";
+  if (routeHeaderRoute) routeHeaderRoute.textContent = (currentRoute != null) ? String(currentRoute) : "-";
+
+  // planned/actual from backend payload when available
+  const info = (currentRoute != null) ? getRouteInfo(currentRoute) : { planned: "-", actual: "-" };
+
+  // planned
+  if (routePlannedEl) routePlannedEl.textContent = (info.planned === "-" ? "-" : String(info.planned));
+
+  // actual: show "backend actual + sessionActual" for instant feedback
+  // If backend actual is not available, just show sessionActual.
+  let baseActual = (info.actual === "-" || Number.isNaN(info.actual)) ? 0 : Number(info.actual);
+  const showActual = baseActual + sessionActual;
+
+  if (routeActualEl) routeActualEl.textContent = String(showActual);
+
+  // invalid
+  if (invalidCountEl) invalidCountEl.textContent = String(invalidScans);
+}
+
 // ====== VIEW SWITCH ======
 function showDayPicker() {
   dayPicker.classList.remove("hidden");
@@ -146,10 +196,16 @@ function applyDashboard(dash, cleanedInfo) {
 
   if (!currentRoute || !activeRoutes.includes(currentRoute)) {
     currentRoute = activeRoutes.length ? activeRoutes[0] : null;
+    // NEW: when auto-select changes route, reset route counters
+    resetRouteSessionCounters();
   }
+
   currentRouteLabel.textContent = currentRoute ? String(currentRoute) : "-";
 
   renderRouteTiles(routes);
+
+  // NEW: ensure header gets refreshed after dashboard update
+  updateWarehouseHeader();
 }
 
 function renderRouteTiles(routes) {
@@ -174,11 +230,16 @@ function renderRouteTiles(routes) {
       const routeNum = Number(tile.dataset.route);
       if (!activeRoutes.includes(routeNum)) return;
 
+      // NEW: if changing route, reset per-route counters
+      const was = currentRoute;
       currentRoute = routeNum;
       currentRouteLabel.textContent = String(currentRoute);
 
       routesGrid.querySelectorAll(".routeTile").forEach(x => x.classList.remove("selected"));
       tile.classList.add("selected");
+
+      if (was !== currentRoute) resetRouteSessionCounters();
+      else updateWarehouseHeader();
 
       setStatus(`Route selected: ${currentRoute}`);
       setTimeout(() => input.focus(), 50);
@@ -202,6 +263,10 @@ async function initForDay(day) {
   dayLabel.textContent = selectedDay;
   setStatus("Loading dashboard...");
 
+  // NEW: reset counters on day change
+  resetRouteSessionCounters();
+  updateWarehouseHeader();
+
   const data = await callApi({ key: API_KEY, action: "init", day: selectedDay });
 
   if (data.status !== "ok") throw new Error(data.message || "Init failed");
@@ -212,7 +277,6 @@ async function initForDay(day) {
   setStatus(`Ready. Queue: ${queue.length} (offline supported)`);
   setTimeout(() => input.focus(), 50);
 
-  // spróbuj od razu wysłać co już jest w kolejce
   kickSend();
 }
 
@@ -237,6 +301,11 @@ function wireDayButtons() {
     activeRoutes = [];
     lastRoutesPayload = [];
     routesGrid.innerHTML = "";
+
+    // NEW: reset counters when leaving app
+    resetRouteSessionCounters();
+    updateWarehouseHeader();
+
     showDayPicker();
     setStatus("Select day");
   });
@@ -247,10 +316,17 @@ btnPrevRoute.addEventListener("click", () => {
   if (!activeRoutes.length || currentRoute == null) return;
   const idx = activeRoutes.indexOf(currentRoute);
   const prev = idx <= 0 ? activeRoutes[activeRoutes.length - 1] : activeRoutes[idx - 1];
+
+  const was = currentRoute;
   currentRoute = prev;
   currentRouteLabel.textContent = String(currentRoute);
+
   setStatus(`Route selected: ${currentRoute}`);
   refreshSelectedTile();
+
+  if (was !== currentRoute) resetRouteSessionCounters();
+  else updateWarehouseHeader();
+
   setTimeout(() => input.focus(), 50);
 });
 
@@ -258,10 +334,17 @@ btnNextRoute.addEventListener("click", () => {
   if (!activeRoutes.length || currentRoute == null) return;
   const idx = activeRoutes.indexOf(currentRoute);
   const next = idx >= activeRoutes.length - 1 ? activeRoutes[0] : activeRoutes[idx + 1];
+
+  const was = currentRoute;
   currentRoute = next;
   currentRouteLabel.textContent = String(currentRoute);
+
   setStatus(`Route selected: ${currentRoute}`);
   refreshSelectedTile();
+
+  if (was !== currentRoute) resetRouteSessionCounters();
+  else updateWarehouseHeader();
+
   setTimeout(() => input.focus(), 50);
 });
 
@@ -294,6 +377,11 @@ function enqueue(code) {
   saveQueue();
 
   addToUI(item);
+
+  // NEW: instant operator feedback (actual +1 in header)
+  sessionActual += 1;
+  updateWarehouseHeader();
+
   setStatus(`OK: ${code} (route ${currentRoute})  queued: ${queue.length}`);
 
   kickSend();
@@ -307,8 +395,14 @@ input.addEventListener("keydown", (e) => {
   input.value = "";
 
   const code = normalizeGB(raw);
+
+  // NEW: invalid scan counter (only invalid format)
   if (!code) {
-    setStatus(`Invalid format: ${String(raw || "").trim()}`);
+    invalidScans += 1;
+    updateWarehouseHeader();
+
+    const cleaned = String(raw || "").trim();
+    setStatus(`Invalid scan (rescan box). Read: ${cleaned || "-"}`);
     return;
   }
 
@@ -333,7 +427,6 @@ async function sendLoop() {
   isSending = true;
   try {
     while (navigator.onLine && queue.length > 0 && selectedDay) {
-      // Wysyłamy tylko dla wybranego dnia (żeby nie mieszać dni)
       const dayItems = queue.filter(x => x.day === selectedDay);
       if (dayItems.length === 0) break;
 
@@ -354,12 +447,8 @@ async function sendLoop() {
       if (data.status !== "ok") throw new Error(data.message || "batchScan failed");
 
       const acked = new Set(Array.isArray(data.ackedIds) ? data.ackedIds : []);
-      if (acked.size === 0) {
-        // nic nie potwierdził -> nie usuwamy nic, próbujemy później
-        throw new Error("No ACK from backend");
-      }
+      if (acked.size === 0) throw new Error("No ACK from backend");
 
-      // usuń z kolejki tylko to co ACK
       const before = queue.length;
       queue = queue.filter(x => !acked.has(x.id));
       saveQueue();
@@ -372,7 +461,7 @@ async function sendLoop() {
 
       setStatus(`Synced: removed ${removed} | saved ${savedCount} | dup ${dupCount} | invalid ${invalidCount} | queue ${queue.length}`);
 
-      // odśwież dashboard po udanej paczce
+      // NEW: after successful send, refresh dashboard to sync planned/actual tiles
       refreshDashboard();
     }
   } catch (err) {
@@ -387,8 +476,8 @@ async function sendLoop() {
   }
 }
 
-// co 5s próbuj wysłać, ale worker sam pilnuje, żeby nie robić równoległych requestów
 setInterval(kickSend, 5000);
+
 window.addEventListener("online", () => {
   setStatus(`Online. Queue: ${queue.length}`);
   kickSend();
@@ -412,6 +501,9 @@ async function refreshDashboard() {
       currentRouteLabel.textContent = String(currentRoute);
       refreshSelectedTile();
     }
+
+    // NEW: refresh header values after dashboard update
+    updateWarehouseHeader();
   } catch (_) {
     // silent
   }
@@ -425,8 +517,10 @@ if (selectedDay) {
   initForDay(selectedDay).catch(() => {
     showDayPicker();
     setStatus("Select day");
+    updateWarehouseHeader();
   });
 } else {
   showDayPicker();
   setStatus("Select day");
+  updateWarehouseHeader();
 }
