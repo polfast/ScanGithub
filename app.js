@@ -15,10 +15,7 @@ let currentRoute = null;    // number
 let lastRoutesPayload = []; // keep latest tiles data for rendering selection
 
 // ====== Warehouse UI counters (per route session) ======
-// NEW: invalid scan counter resets on route/day change
-let invalidScans = 0;
-// NEW: session actual counter (instant feedback for operator)
-let sessionActual = 0;
+let invalidScans = 0; // invalid scan counter resets on route/day change
 
 // ====== DOM ======
 const el = (id) => document.getElementById(id);
@@ -46,7 +43,7 @@ const input = el("scanInput");
 const statusEl = el("status");
 const listEl = el("lastScans");
 
-// NEW: warehouse header elements (from updated index.html)
+// warehouse header elements (from updated index.html)
 const routeHeaderDay = el("routeHeaderDay");
 const routeHeaderRoute = el("routeHeaderRoute");
 const routePlannedEl = el("routePlanned");
@@ -125,21 +122,27 @@ async function callApi(payloadObj, timeoutMs = 12000) {
 }
 
 // ====== Warehouse UI helpers ======
-// NEW: get planned/actual for a route from last dashboard payload
+
+// get planned/actual for a route from last dashboard payload
 function getRouteInfo(routeNum) {
   const r = (lastRoutesPayload || []).find(x => Number(x.route) === Number(routeNum));
   if (!r) return { planned: "-", actual: "-" };
   return { planned: Number(r.planned ?? "-"), actual: Number(r.actual ?? "-") };
 }
 
-// NEW: reset per-route counters and update header
+// NEW: how many scans are still pending (in queue) for current route+day
+function pendingCountForCurrentRoute() {
+  if (!selectedDay || currentRoute == null) return 0;
+  return queue.filter(x => x.day === selectedDay && x.route === currentRoute).length;
+}
+
+// reset per-route counters and update header
 function resetRouteSessionCounters() {
   invalidScans = 0;
-  sessionActual = 0;
   updateWarehouseHeader();
 }
 
-// NEW: update header UI (day/route/planned/actual/invalid)
+// update header UI (day/route/planned/actual/invalid)
 function updateWarehouseHeader() {
   if (routeHeaderDay) routeHeaderDay.textContent = selectedDay || "-";
   if (routeHeaderRoute) routeHeaderRoute.textContent = (currentRoute != null) ? String(currentRoute) : "-";
@@ -150,12 +153,10 @@ function updateWarehouseHeader() {
   // planned
   if (routePlannedEl) routePlannedEl.textContent = (info.planned === "-" ? "-" : String(info.planned));
 
-  // actual: show "backend actual + sessionActual" for instant feedback
-  // If backend actual is not available, just show sessionActual.
-  let baseActual = (info.actual === "-" || Number.isNaN(info.actual)) ? 0 : Number(info.actual);
-  const showActual = baseActual + sessionActual;
-
-  if (routeActualEl) routeActualEl.textContent = String(showActual);
+  // ✅ actual: backend actual + pending in queue (no double counting)
+  const baseActual = (info.actual === "-" || Number.isNaN(info.actual)) ? 0 : Number(info.actual);
+  const pending = pendingCountForCurrentRoute();
+  if (routeActualEl) routeActualEl.textContent = String(baseActual + pending);
 
   // invalid
   if (invalidCountEl) invalidCountEl.textContent = String(invalidScans);
@@ -196,7 +197,7 @@ function applyDashboard(dash, cleanedInfo) {
 
   if (!currentRoute || !activeRoutes.includes(currentRoute)) {
     currentRoute = activeRoutes.length ? activeRoutes[0] : null;
-    // NEW: when auto-select changes route, reset route counters
+    // when auto-select changes route, reset route counters
     resetRouteSessionCounters();
   }
 
@@ -204,7 +205,7 @@ function applyDashboard(dash, cleanedInfo) {
 
   renderRouteTiles(routes);
 
-  // NEW: ensure header gets refreshed after dashboard update
+  // ensure header gets refreshed after dashboard update
   updateWarehouseHeader();
 }
 
@@ -230,7 +231,6 @@ function renderRouteTiles(routes) {
       const routeNum = Number(tile.dataset.route);
       if (!activeRoutes.includes(routeNum)) return;
 
-      // NEW: if changing route, reset per-route counters
       const was = currentRoute;
       currentRoute = routeNum;
       currentRouteLabel.textContent = String(currentRoute);
@@ -263,7 +263,7 @@ async function initForDay(day) {
   dayLabel.textContent = selectedDay;
   setStatus("Loading dashboard...");
 
-  // NEW: reset counters on day change
+  // reset counters on day change
   resetRouteSessionCounters();
   updateWarehouseHeader();
 
@@ -302,7 +302,7 @@ function wireDayButtons() {
     lastRoutesPayload = [];
     routesGrid.innerHTML = "";
 
-    // NEW: reset counters when leaving app
+    // reset counters when leaving app
     resetRouteSessionCounters();
     updateWarehouseHeader();
 
@@ -378,8 +378,7 @@ function enqueue(code) {
 
   addToUI(item);
 
-  // NEW: instant operator feedback (actual +1 in header)
-  sessionActual += 1;
+  // ✅ update header immediately (pending increases by 1)
   updateWarehouseHeader();
 
   setStatus(`OK: ${code} (route ${currentRoute})  queued: ${queue.length}`);
@@ -396,7 +395,7 @@ input.addEventListener("keydown", (e) => {
 
   const code = normalizeGB(raw);
 
-  // NEW: invalid scan counter (only invalid format)
+  // invalid scan counter (only invalid format)
   if (!code) {
     invalidScans += 1;
     updateWarehouseHeader();
@@ -453,6 +452,9 @@ async function sendLoop() {
       queue = queue.filter(x => !acked.has(x.id));
       saveQueue();
 
+      // ✅ update header immediately (pending decreased)
+      updateWarehouseHeader();
+
       const removed = before - queue.length;
       const savedCount = Number(data.savedCount || 0);
       const dupCount = Number(data.dupCount || 0);
@@ -461,7 +463,7 @@ async function sendLoop() {
 
       setStatus(`Synced: removed ${removed} | saved ${savedCount} | dup ${dupCount} | invalid ${invalidCount} | queue ${queue.length}`);
 
-      // NEW: after successful send, refresh dashboard to sync planned/actual tiles
+      // refresh dashboard to sync planned/actual tiles
       refreshDashboard();
     }
   } catch (err) {
@@ -502,7 +504,7 @@ async function refreshDashboard() {
       refreshSelectedTile();
     }
 
-    // NEW: refresh header values after dashboard update
+    // refresh header values after dashboard update
     updateWarehouseHeader();
   } catch (_) {
     // silent
