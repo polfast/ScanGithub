@@ -1,5 +1,6 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbyMha-a_LBuZDPBSr5OU3kGm1HZYARiJWngJnS1l7GocwEvClIRdK0Ql5YAgBposVjm/exec";
-const API_KEY = "0123456789";
+const CFG = (typeof window !== "undefined" && window.GB_CONFIG) ? window.GB_CONFIG : {};
+const API_URL = CFG.GAS_BASE_URL || "PASTE_YOUR_GAS_EXEC_URL_HERE";
+const API_KEY = CFG.API_KEY || "";
 
 // ====== SCAN QUEUE (PERSISTENT) ======
 const QUEUE_KEY = "gb_queue_v2";
