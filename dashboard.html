@@ -170,11 +170,15 @@
     </div>
   </div>
 
+<script src="config.js"></script>
+
 <script>
   // === CONFIG ===
-  // Wklej swój URL do /exec (bez parametrów)
-  const GAS_BASE_URL = "https://script.google.com/macros/s/AKfycbyMha-a_LBuZDPBSr5OU3kGm1HZYARiJWngJnS1l7GocwEvClIRdK0Ql5YAgBposVjm/exec";
-  const API_KEY = "0123456789"; // jeśli nadal używasz key w URL
+  // Config is loaded from config.js (window.GB_CONFIG)
+  const CFG = window.GB_CONFIG || {};
+  const GAS_BASE_URL = CFG.GAS_BASE_URL || "PASTE_YOUR_GAS_EXEC_URL_HERE";
+  const API_KEY = CFG.API_KEY || "";
+
 
   const DAYS = ["Sat","Sun","Mon","Tue","Wed"];
   const LS_KEY = "gb_dash_day";
